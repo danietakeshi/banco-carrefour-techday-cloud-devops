@@ -1,0 +1,17 @@
+---
+apiVersion: deploy.cloud.google.com/v1beta1
+kind: DeliveryPipeline
+metadata:
+  name: techday-app
+description: Techday Deployment Pipeline 
+serialPipeline:
+  stages:
+  - targetId: production
+---
+apiVersion: deploy.cloud.google.com/v1beta1
+kind: Target
+metadata:
+  name: production
+description: Production Environment for Techday Challenge
+gke:
+  cluster: projects/coherent-bliss-275820/locations/us-central1-c/clusters/production
