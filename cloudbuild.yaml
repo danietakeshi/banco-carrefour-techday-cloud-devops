@@ -1,33 +1,46 @@
+
 # [START cloudbuild_basic_config]
 steps:
   # Docker Build PHP
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 
-           'us-central1-docker.pkg.dev/$PROJECT_ID/my-docker-repo/php-image:$SHORT_SHA', 
+    args: ['build', '-t',
+           'us-central1-docker.pkg.dev/$PROJECT_ID/my-docker-repo/php-image:$SHORT_SHA',
            'backend/.']
 
   # Docker Build MySQL
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 
-           'us-central1-docker.pkg.dev/$PROJECT_ID/my-docker-repo/mysql-image:v1', 
+    args: ['build', '-t',
+           'us-central1-docker.pkg.dev/$PROJECT_ID/my-docker-repo/mysql-image:v1',
            'database/.']
+
+  # Docker Build Nginx
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t',
+           'us-central1-docker.pkg.dev/$PROJECT_ID/my-docker-repo/nginx-image:v1',
+           'frontend/.']
 
   # Docker Push PHP
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 
+    args: ['push',
            'us-central1-docker.pkg.dev/$PROJECT_ID/my-docker-repo/php-image:$SHORT_SHA']
 
   # Docker Push MySQL
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 
+    args: ['push',
            'us-central1-docker.pkg.dev/$PROJECT_ID/my-docker-repo/mysql-image:v1']
+
+  # Docker Push Nginx
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push',
+           'us-central1-docker.pkg.dev/$PROJECT_ID/my-docker-repo/nginx-image:v1']
+
 
   # Deploy new Release
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: 'bash'
     args:
     - '-c'
-    - > 
+    - >
       gcloud deploy releases create release-$BUILD_ID
       --delivery-pipeline=techday-app
       --region=us-central1

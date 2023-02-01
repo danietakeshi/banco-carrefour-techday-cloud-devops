@@ -26,8 +26,6 @@ https://forms.office.com/r/S8MHD0HrUb
 
 ![techday-header](images/techday-carrefour.png)
 
-# Projeto CI/CD Google Cloud
-
 Detalhamento dos procedimentos necessários para a criação de um Pipeline de CI/CD de uma aplicação em PHP e MySQL utilizando o Google Cloud Platform.
 
 Para este desafio foram utilizadas as referências:
@@ -73,6 +71,12 @@ techday-carrefour
 │   │   css.css
 │   │   index.html
 │   │   js.js 
+│   │   dockerfile
+│   │   nginx.conf
+│   └───img
+│       │   Github.png
+│       │   Insta.png
+│       │   Linkedin.png   
 │   
 └───k8s
 │   │   deployment.yaml
@@ -107,15 +111,31 @@ RUN apt-get update && apt-get install -y \
 EXPOSE 80
 ```
 
-Dockerfile do frontend (MySQL)
+Dockerfile da base de dados (MySQL)
 ```
 FROM mysql:5.7
 
 WORKDIR /var/www/html
-
 ADD sql.sql /docker-entrypoint-initdb.d
 
 EXPOSE 3306
+```
+
+Dockerfile do Frontend
+```
+FROM nginx:1.17.10-alpine
+
+RUN apk add nano && apk add curl
+
+COPY ./index.html /usr/share/nginx/html
+COPY ./js.js /usr/share/nginx/html
+COPY ./css.css /usr/share/nginx/html
+COPY ./img /usr/share/nginx/html
+
+RUN rm -rf /etc/nginx/conf.d/default.conf
+COPY ./nginx.conf /etc/nginx/conf.d
+
+EXPOSE 8080
 ```
 
 ## Criação de Repositório - Artifact Registry
@@ -134,29 +154,40 @@ create my-docker-repo \
 Utilizaremos o **Cloud Build** para construir nossa aplicação em PHP e MySQL, o arquivo de configuração tem o nome ```cloudbuild.yaml``` e abaixo segue o exemplo:
 ```
 # [START cloudbuild_basic_config]
+
 steps:
-# Docker Build PHP
-- name: 'gcr.io/cloud-builders/docker'
-args: ['build', '-t',
-'us-central1-docker.pkg.dev/$PROJECT_ID/my-docker-repo/php-image:v1',
-'backend/.']
+  # Docker Build PHP
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t',
+           'us-central1-docker.pkg.dev/$PROJECT_ID/my-docker-repo/php-image:v1',
+           'backend/.']
 
-# Docker Build MySQL
-- name: 'gcr.io/cloud-builders/docker'
-args: ['build', '-t',
-'us-central1-docker.pkg.dev/$PROJECT_ID/my-docker-repo/mysql-image:v1',
-'database/.']
+  # Docker Build MySQL
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t',
+           'us-central1-docker.pkg.dev/$PROJECT_ID/my-docker-repo/mysql-image:v1',
+           'database/.']
 
+  # Docker Build Nginx
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t',
+           'us-central1-docker.pkg.dev/$PROJECT_ID/my-docker-repo/nginx-image:v1',
+           'frontend/.']
 
-# Docker Push PHP
-- name: 'gcr.io/cloud-builders/docker'
-args: ['push',
-'us-central1-docker.pkg.dev/$PROJECT_ID/my-docker-repo/php-image:v1']
+  # Docker Push PHP
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push',
+           'us-central1-docker.pkg.dev/$PROJECT_ID/my-docker-repo/php-image:v1']
 
-# Docker Push MySQL
-- name: 'gcr.io/cloud-builders/docker'
-args: ['push',
-'us-central1-docker.pkg.dev/$PROJECT_ID/my-docker-repo/mysql-image:v1']
+  # Docker Push MySQL
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push',
+           'us-central1-docker.pkg.dev/$PROJECT_ID/my-docker-repo/mysql-image:v1']
+
+  # Docker Push Nginx
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push',
+           'us-central1-docker.pkg.dev/$PROJECT_ID/my-docker-repo/nginx-image:v1']
 
 # [END cloudbuild_basic_config]
 
@@ -261,6 +292,31 @@ spec:
         imagePullPolicy: Always
         ports:
         - containerPort: 80
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend-deployment
+  labels:
+    app: frontend-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: frontend-pod
+  template:
+    metadata:
+      name: frontend-pod
+      labels:
+        app: frontend-pod
+    spec:
+      containers:
+        - name: frontend-container
+          image: us-central1-docker.pkg.dev/coherent-bliss-275820/my-docker-repo/nginx-image:v1
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 80
 ```
 
 A imagem dos Pods PHP estão com a  referência *"php-image"* pois o *Skaffold* irá atribuir a imagem automaticamente.
@@ -290,6 +346,23 @@ spec:
   selector:
     app: mysql
   clusterIP: None
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+  labels:
+    app: frontend-service
+spec:
+  type: LoadBalancer
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+  selector:
+    app: frontend-pod
 ```
 
 Para armazenamento da senha e do nome do banco de dados foi definido um arquivo de *secrets* (```secrets.yaml```), que para fins explicativos está demonstrado abaixo:
@@ -391,6 +464,12 @@ args: ['build', '-t',
 'us-central1-docker.pkg.dev/$PROJECT_ID/my-docker-repo/mysql-image:v1',
 'database/.']
 
+# Docker Build Nginx
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t',
+'us-central1-docker.pkg.dev/$PROJECT_ID/my-docker-repo/nginx-image:v1',
+'frontend/.']
+
 # Docker Push PHP
 - name: 'gcr.io/cloud-builders/docker'
 args: ['push',
@@ -401,6 +480,11 @@ args: ['push',
 args: ['push',
 'us-central1-docker.pkg.dev/$PROJECT_ID/my-docker-repo/mysql-image:v1']
 
+# Docker Push Nginx
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['push',
+'us-central1-docker.pkg.dev/$PROJECT_ID/my-docker-repo/nginx-image:v1']
+           
 # Deploy new Release
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
 entrypoint: 'bash'
@@ -434,10 +518,10 @@ Agora é possível verificar os Pods rodando no GKE conforme imagem abaixo:
 ![Pods](/images/GKE-pods.png)
 
 Clicando no **endpoint** do pod do PHP podemos ver a mensagem de sucesso:
-![pod-running](/images/pod-running.png)
+![](/images/pod-running.png)
 
 Utilizando o endpoint do PHP no arquivo ```/frontend/js.js``` é possível ver o frontend funcionando!
-![comment](/images/final-comment.png)
+![](/images/final-comment.png)
 
 Para confirmar a inserção dos dados é possível entrar no pod do MySQL.
 Para pegar a referência do pod do MySQL utilizar o comando:
@@ -454,4 +538,4 @@ kubectl exec --tty --stdin mysql-6cf57649f-7zswm -- /bin/bash
 Rodar o comando ```mysql -u root -p``` e digitar a senha definida no arquivo ```secrets.yaml```.
 
 Depois utilizar os comandos ```use meubanco;``` e ```select * from mensagens;``` para ver os dados da tabela.
-![mysql](images/table-mysql.png)
+![](images/table-mysql.png)
